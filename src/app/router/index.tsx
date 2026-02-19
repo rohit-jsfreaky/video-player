@@ -1,33 +1,25 @@
-import { createBrowserRouter, type RouteObject } from 'react-router-dom';
-import { AppLayout } from '@/components/layout/AppLayout';
+import { lazy } from 'react';
+import { Route, Routes, useLocation } from 'react-router-dom';
+import { AnimatedRoutes } from '@/components/transitions/AnimatedRoutes';
 
 // ─── Lazy-loaded page components ────────────────────────────────────────────
-// Using lazy imports so page bundles are code-split automatically.
-
-import { lazy } from 'react';
 
 const HomePage = lazy(() => import('@/features/home/pages/HomePage'));
 const PlayerPage = lazy(() => import('@/features/player/pages/PlayerPage'));
 
-// ─── Route Definitions ──────────────────────────────────────────────────────
+// ─── Animated Route Tree ────────────────────────────────────────────────────
+// Wrapped in AnimatedRoutes to enable CSS-based enter/exit transitions
+// when navigating between the home feed and the player page.
 
-export const routes: RouteObject[] = [
-  {
-    path: '/',
-    element: <AppLayout />,
-    children: [
-      {
-        index: true,
-        element: <HomePage />,
-      },
-      {
-        path: 'player/:slug',
-        element: <PlayerPage />,
-      },
-    ],
-  },
-];
+export function AppRoutes() {
+  const location = useLocation();
 
-// ─── Router Instance ────────────────────────────────────────────────────────
-
-export const router = createBrowserRouter(routes);
+  return (
+    <AnimatedRoutes locationKey={location.pathname}>
+      <Routes location={location}>
+        <Route index element={<HomePage />} />
+        <Route path="player/:slug" element={<PlayerPage />} />
+      </Routes>
+    </AnimatedRoutes>
+  );
+}

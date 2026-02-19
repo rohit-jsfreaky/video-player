@@ -1,13 +1,15 @@
-import { RouterProvider } from 'react-router-dom';
+import { BrowserRouter } from 'react-router-dom';
 import { AppProvider } from '@/app/providers/AppProvider';
-import { router } from '@/app/router';
+import { AppLayout } from '@/components/layout/AppLayout';
 import './App.css';
 
 const App = () => {
   return (
-    <AppProvider>
-      <RouterProvider router={router} />
-    </AppProvider>
+    <BrowserRouter>
+      <AppProvider>
+        <AppLayout />
+      </AppProvider>
+    </BrowserRouter>
   );
 };
 
