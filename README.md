@@ -1,40 +1,75 @@
-# Mobile Video Player
+# Dino Ventures – Frontend Engineer Assignment
+# Video Player Application
 
-A mobile-first React video player app built with Vite + TypeScript. It includes a home feed grouped by category, a full player page, in-player related list drawer, mini-player dock behavior, and auto-play next with countdown + cancel.
+Mobile-first video player application inspired by YouTube mobile UX, focused on smooth playback, gesture interactions, clean UI, and responsive performance.
 
-## Features
-
-### Playback & Player UX
-- Custom player controls (play/pause, seek bar, skip ±10s, mute, optional PiP support).
-- Single global player surface shared between full player and mini-player for continuity.
-- Drag down to minimize from player view.
-- Resume playback state while switching between routes.
-
-### Auto-Play Next
-- Detects video end and opens a 2-second “Up Next” countdown.
-- Cancel option to stop auto-advance.
-- Navigates to the next video in the same category after countdown.
-
-### Video Browsing
-- Home feed grouped by categories.
-- Category badges and duration labels.
-- “Up Next / More in category” section on player page.
-- Slide-up in-player video list drawer with now-playing highlight.
-
-### App Architecture
-- React + TypeScript strict mode.
-- Vite build tooling with path alias `@ -> src`.
-- Centralized player store for playback state sync.
-- Feature-based folder structure under `src/features`.
+## Submission Links
+- GitHub Repository: https://github.com/rohit-jsfreaky/video-player
+- Live Demo: https://video-player-six-nu.vercel.app/
 
 ## Tech Stack
-- React 19
+- React 19 + TypeScript
 - React Router
 - React Player
-- TypeScript
 - Tailwind CSS 4
 - Vite
 - ESLint
+
+## Implemented Requirements (Assignment Mapping)
+
+### 1) Home Page – Video Feed ✅
+- Scrollable video feed grouped by category.
+- Video cards include:
+  - Thumbnail
+  - Title
+  - Duration
+  - Category badge
+- Clicking a video opens full-page player route (`/player/:slug`).
+- Smooth route transitions between feed and player views.
+
+### 2) Full-Page Video Player ✅
+- Video auto-plays on open.
+- Custom controls implemented:
+  - Play / Pause
+  - Skip +10s / -10s
+  - Seekable progress bar
+  - Current time / total duration
+  - Mute toggle
+- Responsive layout for mobile and desktop.
+- YouTube video playback is supported through dataset URLs.
+
+### 3) In-Player Video List ✅
+- In-player related video drawer available during playback.
+- List is filtered by current video category.
+- Selecting a video:
+  - Switches immediately
+  - Auto-plays selected video
+  - Updates list as category/video context changes
+- Includes smooth scrolling and drag-to-dismiss behavior.
+- Drawer rendered via React Portal for stable mobile layering/performance.
+
+### 4) Drag-to-Minimize Video Player ✅
+- Drag down gesture minimizes player.
+- Player docks into bottom mini-player.
+- Mini-player includes:
+  - Live video preview (continues playback)
+  - Video title
+  - Play / Pause control
+  - Close button
+- Mini-player persists while browsing home page.
+- Tapping mini-player restores full player.
+
+## Bonus Features Implemented ✅
+- Auto-play Next in same category on end.
+- 2-second countdown overlay with cancel option.
+- Picture-in-Picture API support when available.
+- Visual skip feedback animation for ±10s interactions.
+
+## Performance / UX Notes
+- Mobile-first UI and touch-friendly controls.
+- Global player state store keeps playback continuity across routes.
+- Stable route refresh handling on Vercel via SPA rewrite (`vercel.json`).
+- Drawer moved to portal rendering to reduce mobile flicker/glitching.
 
 ## Project Structure
 
@@ -56,16 +91,16 @@ src/
   styles/
 ```
 
-## Prerequisites
-- Node.js 18+ (recommended: latest LTS)
-- npm 9+
-
 ## Setup Instructions
 
-### 1) Clone the repository
+### Prerequisites
+- Node.js 18+
+- npm 9+
+
+### 1) Clone
 ```bash
-git clone <your-repository-url>
-cd mobile_video_player
+git clone https://github.com/rohit-jsfreaky/video-player
+cd video-player
 ```
 
 ### 2) Install dependencies
@@ -73,62 +108,34 @@ cd mobile_video_player
 npm install
 ```
 
-### 3) Start development server
+### 3) Run locally
 ```bash
 npm run dev
 ```
+Open: `http://localhost:5173`
 
-Open the URL printed in terminal (default: `http://localhost:5173`).
-
-### 4) Build for production
+### 4) Build
 ```bash
 npm run build
 ```
 
-### 5) Preview production build locally
+### 5) Preview production build
 ```bash
 npm run preview
 ```
 
-### 6) Run lint checks
+### 6) Lint
 ```bash
 npm run lint
 ```
 
-## Scripts
-- `npm run dev` — starts Vite dev server.
-- `npm run build` — runs TypeScript build + Vite production build.
-- `npm run preview` — serves production build locally.
-- `npm run lint` — runs ESLint.
+## Available Scripts
+- `npm run dev` – start development server
+- `npm run build` – TypeScript build + Vite production build
+- `npm run preview` – preview production build
+- `npm run lint` – run ESLint
 
-## Configuration Notes
-- Path aliases are configured in `tsconfig.app.json` and `vite.config.ts`.
-- Global design tokens are defined in `src/index.css`.
-- Animations and transitions are defined in `src/styles/animations.css`.
-
-## Known Development Console Noise
-- You may see YouTube `postMessage` origin warnings from `www-widgetapi.js` while developing on localhost.
-- These are emitted by the embedded YouTube widget internals and do not necessarily indicate a playback logic failure.
-
-## Troubleshooting
-
-### Player not loading
-- Confirm `npm install` completed without errors.
-- Verify internet access for YouTube-hosted media URLs.
-
-### Route renders but video doesn’t play
-- Check browser autoplay permissions and tab audio settings.
-- Confirm selected video has a valid `mediaUrl` in `src/features/videos/data/videos.ts`.
-
-### Build failures
-- Delete `node_modules` and `package-lock.json`, reinstall, then retry:
-  ```bash
-  rm -rf node_modules package-lock.json
-  npm install
-  npm run build
-  ```
-
-## Future Improvements (Optional)
-- Add unit tests for player store and autoplay transitions.
-- Add end-to-end tests for route + player lifecycle.
-- Add optional analytics hooks for watch progress.
+## Notes for Evaluators
+- Dataset is integrated under `src/features/videos/data/videos.ts`.
+- Routing is handled as SPA for deep-link player URLs in deployment.
+- Console may show YouTube widget-origin warnings in dev; these are from embed internals and do not block core functionality.

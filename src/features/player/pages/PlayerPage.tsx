@@ -52,30 +52,9 @@ const PlayerPage = () => {
   const [autoPlayCancelled, setAutoPlayCancelled] = useState(false);
   const autoPlayInFlightRef = useRef(false);
 
-  useEffect(() => {
-    console.log('[autoplay] overlay visibility', { showCountdown });
-  }, [showCountdown]);
-
-  useEffect(() => {
-    if (video) {
-      console.log('[autoplay] next video resolution', {
-        currentVideoId: video.id,
-        categoryCount: categoryVideos.length,
-        nextVideoId: nextVideo?.id,
-      });
-    }
-  }, [video, categoryVideos.length, nextVideo?.id]);
-
   // When video ends, show countdown
   useEffect(() => {
-    console.log('[autoplay] effect check', {
-      playbackState: playerStoreState.playbackState,
-      nextVideoId: nextVideo?.id,
-      autoPlayCancelled,
-      showCountdown,
-    });
     if (playerStoreState.playbackState === 'ended' && nextVideo && !autoPlayCancelled) {
-      console.log('[autoplay] ended -> showing countdown');
       setShowCountdown(true);
       return;
     }
@@ -91,15 +70,10 @@ const PlayerPage = () => {
 
   const handleAutoPlayComplete = useCallback(() => {
     if (autoPlayInFlightRef.current) {
-      console.log('[autoplay] completion ignored (already in-flight)');
       return;
     }
     autoPlayInFlightRef.current = true;
 
-    console.log('[autoplay] countdown complete -> navigate next', {
-      fromVideoId: video?.id,
-      toVideoId: nextVideo?.id,
-    });
     setShowCountdown(false);
     if (nextVideo) {
       setPlaybackProgress({
@@ -114,10 +88,9 @@ const PlayerPage = () => {
       return;
     }
     autoPlayInFlightRef.current = false;
-  }, [nextVideo, navigate, playVideo, maximize, setPlaybackProgress, video?.id]);
+  }, [nextVideo, navigate, playVideo, maximize, setPlaybackProgress]);
 
   const handleAutoPlayCancel = useCallback(() => {
-    console.log('[autoplay] countdown cancelled');
     setShowCountdown(false);
     setAutoPlayCancelled(true);
   }, []);
