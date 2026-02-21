@@ -1,99 +1,122 @@
-import { useCallback, useEffect, useRef, useState, memo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { usePlayer } from '@/app/store/playerStore';
-import ReactPlayer from 'react-player';
+import { useVideoPlayer } from '../hooks/useVideoPlayer';
+import { VideoPlayer } from './VideoPlayer';
 import { cn } from '@/lib/utils';
 
-// ─── Mini Player ────────────────────────────────────────────────────────────
-// A draggable, minimized player dock at the bottom of the screen.
-// Features:
-//   - Displays thumbnail + title + play/pause + close
-//   - Drag up to maximize → navigates to /player/:slug
-//   - Drag down to dismiss → closes player
-//   - Continues playback while browsing home feed
+const MINI_SOURCE_WIDTH = 320;
+const MINI_SOURCE_HEIGHT = 180;
+const MINI_SCALE = 0.2; // 320x180 -> 64x36 (w-16 aspect-video)
 
+// Global single-instance player surface.
+// This component is always mounted in AppLayout and switches between:
+// - Full player shell on /player/:slug
+// - Mini-player dock on home/feed
 export const MiniPlayer = memo(function MiniPlayer() {
   const {
     state,
     dispatch,
+    minimize,
     maximize,
     closePlayer,
-    togglePlayback,
     setPlaybackState,
     setPlaybackProgress,
-    isPlaying,
     hasVideo,
   } = usePlayer();
   const navigate = useNavigate();
-  const { currentVideo, isMinimized } = state;
-  const playerRef = useRef<HTMLVideoElement | null>(null);
-  const youtubeOrigin = typeof window !== 'undefined' ? window.location.origin : undefined;
+  const location = useLocation();
 
-  // ── Drag state ────────────────────────────────────────────────────────
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [dragY, setDragY] = useState(0);
-  const [isDragging, setIsDragging] = useState(false);
-  const [isMiniReady, setIsMiniReady] = useState(false);
-  const dragStartY = useRef(0);
-  const dragStartTime = useRef(0);
-  const isSurfaceTransitionRef = useRef(false);
+  const { currentVideo, isMinimized } = state;
+  const isPlayerRoute = location.pathname.startsWith('/player/');
+  const showFullscreen = Boolean(hasVideo && currentVideo && !isMinimized && isPlayerRoute);
+  const showMini = Boolean(hasVideo && currentVideo && isMinimized);
+
+  const player = useVideoPlayer({
+    video: currentVideo,
+    autoPlay: true,
+    initialTime: state.currentTime,
+    initialDuration: state.duration,
+    initialBuffered: state.buffered,
+    initialVolume: state.volume,
+    initialMuted: state.isMuted,
+    initialIsPlaying: state.playbackState === 'playing' || state.playbackState === 'buffering',
+  });
 
   useEffect(() => {
-    setIsMiniReady(false);
-  }, [currentVideo?.id, isMinimized]);
+    if (currentVideo && !isMinimized && !isPlayerRoute) {
+      minimize();
+    }
+  }, [currentVideo, isMinimized, isPlayerRoute, minimize]);
 
-  const handleTimeUpdate = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
-    const el = e.currentTarget;
-    const d = Number.isFinite(el.duration) ? el.duration : undefined;
-    const buffered = el.buffered.length && el.duration
-      ? el.buffered.end(el.buffered.length - 1) / el.duration
-      : undefined;
+  useEffect(() => {
+    if (currentVideo && isMinimized && isPlayerRoute) {
+      maximize();
+    }
+  }, [currentVideo, isMinimized, isPlayerRoute, maximize]);
 
+  // ── Keep store in sync with live player state ─────────────────────────
+  useEffect(() => {
+    if (!currentVideo) return;
     setPlaybackProgress({
-      currentTime: el.currentTime,
-      duration: d,
-      buffered,
+      currentTime: player.state.currentTime,
+      duration: player.state.duration,
+      buffered: player.state.buffered,
+      isBuffering: player.state.isBuffering,
     });
-  }, [setPlaybackProgress]);
+  }, [
+    currentVideo,
+    player.state.currentTime,
+    player.state.duration,
+    player.state.buffered,
+    player.state.isBuffering,
+    setPlaybackProgress,
+  ]);
 
-  const handleDurationChange = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
-    const d = e.currentTarget.duration;
-    if (Number.isFinite(d)) {
-      setPlaybackProgress({ duration: d });
+  useEffect(() => {
+    if (!currentVideo) return;
+    if (player.state.hasEnded) {
+      if (state.playbackState !== 'ended') setPlaybackState('ended');
+      return;
     }
-  }, [setPlaybackProgress]);
-
-  const handlePlay = useCallback(() => {
-    isSurfaceTransitionRef.current = false;
-    setPlaybackState('playing');
-  }, [setPlaybackState]);
-
-  const handlePause = useCallback(() => {
-    if (isSurfaceTransitionRef.current) return;
-    setPlaybackState('paused');
-  }, [setPlaybackState]);
-
-  const handleReady = useCallback(() => {
-    const el = playerRef.current;
-    if (!el) return;
-    setIsMiniReady(true);
-
-    if (state.currentTime > 0 && Math.abs(el.currentTime - state.currentTime) > 1) {
-      try {
-        el.currentTime = state.currentTime;
-      } catch {
-        // Ignore provider seek errors.
-      }
+    if (player.state.isBuffering) {
+      if (state.playbackState !== 'buffering') setPlaybackState('buffering');
+      return;
     }
+    const nextState = player.state.isPlaying ? 'playing' : 'paused';
+    if (state.playbackState !== nextState) setPlaybackState(nextState);
+  }, [
+    currentVideo,
+    player.state.hasEnded,
+    player.state.isBuffering,
+    player.state.isPlaying,
+    setPlaybackState,
+    state.playbackState,
+  ]);
 
-    const canPiP = typeof (el as HTMLVideoElement & {
-      requestPictureInPicture?: () => Promise<PictureInPictureWindow>;
-    }).requestPictureInPicture === 'function' && document.pictureInPictureEnabled;
-    dispatch({ type: 'SET_PIP_SUPPORTED', payload: canPiP });
-  }, [dispatch, state.currentTime]);
+  useEffect(() => {
+    if (!currentVideo) return;
+    dispatch({ type: 'SET_PIP_SUPPORTED', payload: player.state.canPiP });
+    dispatch({ type: 'SET_PIP_ACTIVE', payload: player.state.isPiPActive });
+  }, [currentVideo, dispatch, player.state.canPiP, player.state.isPiPActive]);
 
-  // ── Drag handlers ─────────────────────────────────────────────────────
-  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+  useEffect(() => {
+    if (Math.abs(state.volume - player.state.volume) > 0.001) {
+      dispatch({ type: 'SET_VOLUME', payload: player.state.volume });
+    }
+    if (state.isMuted !== player.state.isMuted) {
+      dispatch({ type: 'SET_MUTED', payload: player.state.isMuted });
+    }
+  }, [dispatch, player.state.isMuted, player.state.volume, state.isMuted, state.volume]);
+
+  // ── Mini drag state ───────────────────────────────────────────────────
+  const [dragY, setDragY] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartY = useRef(0);
+  const dragStartTime = useRef(0);
+
+  const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!showMini) return;
     const target = e.target as HTMLElement;
     if (target.closest('button')) return;
 
@@ -101,170 +124,171 @@ export const MiniPlayer = memo(function MiniPlayer() {
     dragStartY.current = e.clientY;
     dragStartTime.current = Date.now();
     e.currentTarget.setPointerCapture(e.pointerId);
-  }, []);
+  }, [showMini]);
 
-  const handlePointerMove = useCallback((e: React.PointerEvent) => {
-    if (!isDragging) return;
-    const delta = e.clientY - dragStartY.current;
-    setDragY(delta);
-  }, [isDragging]);
+  const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!showMini || !isDragging) return;
+    setDragY(e.clientY - dragStartY.current);
+  }, [isDragging, showMini]);
+
+  const handleMaximize = useCallback(() => {
+    if (!currentVideo) return;
+    setPlaybackProgress({
+      currentTime: player.playerRef.current?.currentTime ?? player.state.currentTime,
+      duration: player.playerRef.current?.duration || player.state.duration,
+      buffered: player.state.buffered,
+      isBuffering: false,
+    });
+    maximize();
+    navigate(`/player/${currentVideo.slug}`);
+  }, [currentVideo, maximize, navigate, player.playerRef, player.state.buffered, player.state.currentTime, player.state.duration, setPlaybackProgress]);
+
+  const handleMinimize = useCallback(() => {
+    if (!currentVideo) return;
+    setPlaybackProgress({
+      currentTime: player.playerRef.current?.currentTime ?? player.state.currentTime,
+      duration: player.playerRef.current?.duration || player.state.duration,
+      buffered: player.state.buffered,
+      isBuffering: false,
+    });
+    setPlaybackState('playing');
+    minimize();
+    navigate('/');
+  }, [currentVideo, minimize, navigate, player.playerRef, player.state.buffered, player.state.currentTime, player.state.duration, setPlaybackProgress, setPlaybackState]);
 
   const handlePointerUp = useCallback(() => {
-    if (!isDragging) return;
+    if (!showMini || !isDragging) return;
     setIsDragging(false);
-    const velocity = dragY / (Date.now() - dragStartTime.current + 1);
 
+    const velocity = dragY / (Date.now() - dragStartTime.current + 1);
     if (dragY < -50 || velocity < -0.5) {
-      // Dragged up → maximize
-      isSurfaceTransitionRef.current = true;
-      setPlaybackProgress({
-        currentTime: playerRef.current?.currentTime ?? state.currentTime,
-        duration: playerRef.current?.duration || state.duration,
-        buffered: state.buffered,
-      });
-      setPlaybackState('playing');
-      maximize();
-      if (currentVideo) navigate(`/player/${currentVideo.slug}`);
+      handleMaximize();
     } else if (dragY > 60 || velocity > 0.5) {
-      // Dragged down → close
       closePlayer();
     }
     setDragY(0);
-  }, [isDragging, dragY, maximize, closePlayer, navigate, currentVideo, setPlaybackProgress, state.currentTime, state.duration, state.buffered, setPlaybackState]);
+  }, [showMini, isDragging, dragY, handleMaximize, closePlayer]);
 
-  const handleMaximize = useCallback(() => {
-    isSurfaceTransitionRef.current = true;
-    setPlaybackProgress({
-      currentTime: playerRef.current?.currentTime ?? state.currentTime,
-      duration: playerRef.current?.duration || state.duration,
-      buffered: state.buffered,
-    });
-    setPlaybackState('playing');
-    maximize();
-    if (currentVideo) {
-      navigate(`/player/${currentVideo.slug}`);
-    }
-  }, [maximize, navigate, currentVideo, setPlaybackProgress, state.currentTime, state.duration, state.buffered, setPlaybackState]);
-
-  // Don't render if no video or not minimized
-  if (!hasVideo || !isMinimized || !currentVideo) return null;
+  if (!currentVideo || (!showFullscreen && !showMini)) {
+    return null;
+  }
 
   return (
     <div
-      ref={containerRef}
       className={cn(
-        'fixed bottom-0 left-0 right-0 z-50',
-        'safe-area-bottom',
+        showMini
+          ? 'fixed bottom-0 left-0 right-0 z-50 safe-area-bottom'
+          : 'fixed top-0 left-0 right-0 z-20 bg-black',
       )}
-      style={{
-        transform: dragY !== 0 ? `translateY(${dragY}px)` : undefined,
-        transition: isDragging ? 'none' : 'transform 0.3s cubic-bezier(0.32, 0.72, 0, 1)',
-        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
-      }}
+      style={
+        showMini
+          ? {
+            transform: dragY !== 0 ? `translateY(${dragY}px)` : undefined,
+            transition: isDragging ? 'none' : 'transform 0.3s cubic-bezier(0.32, 0.72, 0, 1)',
+            paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+          }
+          : undefined
+      }
     >
-      {/* Progress bar at top */}
-      <div className="h-[2px] bg-white/10 w-full">
-        <div
-          className="h-full bg-(--color-accent) transition-[width] duration-300 ease-linear"
-          style={{
-            width: `${state.duration > 0 ? Math.max(0, Math.min(100, (state.currentTime / state.duration) * 100)) : 0}%`,
-          }}
-        />
-      </div>
-
-      {/* Mini player body */}
-      <div
-        className="flex items-center gap-3 px-3 py-2 bg-(--color-bg-secondary)/95 backdrop-blur-lg border-t border-white/5 touch-none"
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerUp}
-      >
-        {/* Thumbnail / Mini video */}
-        <div
-          className="relative w-16 aspect-video rounded-md overflow-hidden flex-shrink-0 cursor-pointer"
-          onClick={handleMaximize}
-        >
-          {/* Hidden tiny ReactPlayer for continued playback */}
-          <div className="absolute inset-0 pointer-events-none">
-            <ReactPlayer
-              ref={playerRef}
-              src={currentVideo.mediaUrl}
-              playing={isPlaying && isMiniReady}
-              muted={state.isMuted}
-              volume={state.volume}
-              width="100%"
-              height="100%"
-              controls={false}
-              playsInline
-              onReady={handleReady}
-              onPlay={handlePlay}
-              onPause={handlePause}
-              onWaiting={() => setPlaybackState('buffering')}
-              onPlaying={() => setPlaybackState('playing')}
-              onEnded={() => setPlaybackState('ended')}
-              onTimeUpdate={handleTimeUpdate}
-              onDurationChange={handleDurationChange}
-              onEnterPictureInPicture={() => dispatch({ type: 'SET_PIP_ACTIVE', payload: true })}
-              onLeavePictureInPicture={() => dispatch({ type: 'SET_PIP_ACTIVE', payload: false })}
-              config={{
-                youtube: {
-                  rel: 0,
-                  iv_load_policy: 3,
-                  disablekb: 1,
-                  enablejsapi: 1,
-                  origin: youtubeOrigin,
-                  widget_referrer: youtubeOrigin,
-                },
-              }}
-              style={{ position: 'absolute', top: 0, left: 0 }}
-            />
-          </div>
-          {/* Fallback thumbnail overlay for visual */}
-          <img
-            src={currentVideo.thumbnailUrl}
-            alt=""
-            className="absolute inset-0 w-full h-full object-cover opacity-40"
+      {showMini && (
+        <div className="h-0.5 bg-white/10 w-full">
+          <div
+            className="h-full bg-(--color-accent) transition-[width] duration-300 ease-linear"
+            style={{
+              width: `${player.state.duration > 0
+                ? Math.max(0, Math.min(100, (player.state.currentTime / player.state.duration) * 100))
+                : 0}%`,
+            }}
           />
         </div>
+      )}
 
-        {/* Title */}
-        <div className="flex-1 min-w-0 cursor-pointer" onClick={handleMaximize}>
-          <p className="text-sm font-medium text-(--color-text-primary) truncate">
-            {currentVideo.title}
-          </p>
-          <p className="text-[11px] text-(--color-text-muted) truncate">
-            {currentVideo.category.name}
-          </p>
+      <div
+        className={cn(
+          showMini
+            ? 'flex items-center gap-3 px-3 py-2 bg-(--color-bg-secondary)/95 backdrop-blur-lg border-t border-white/5 touch-none'
+            : 'max-w-5xl mx-auto relative',
+        )}
+        onPointerDown={showMini ? handlePointerDown : undefined}
+        onPointerMove={showMini ? handlePointerMove : undefined}
+        onPointerUp={showMini ? handlePointerUp : undefined}
+        onPointerCancel={showMini ? handlePointerUp : undefined}
+      >
+        <div
+          className={cn(
+            showMini
+              ? 'relative w-16 aspect-video rounded-md overflow-hidden shrink-0 cursor-pointer bg-black'
+              : 'relative w-full',
+          )}
+          onClick={showMini ? handleMaximize : undefined}
+        >
+          <div
+            className={cn(showMini && 'origin-top-left')}
+            style={
+              showMini
+                ? {
+                  width: `${MINI_SOURCE_WIDTH}px`,
+                  height: `${MINI_SOURCE_HEIGHT}px`,
+                  transform: `scale(${MINI_SCALE})`,
+                  transformOrigin: 'top left',
+                }
+                : undefined
+            }
+          >
+            <VideoPlayer
+              video={currentVideo}
+              player={player}
+              onDragDown={handleMinimize}
+              compact={showMini}
+              className={showMini ? 'w-[320px] h-[180px]' : undefined}
+            />
+          </div>
         </div>
 
-        {/* Play / Pause */}
-        <button
-          onClick={(e) => { e.stopPropagation(); togglePlayback(); }}
-          className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors flex-shrink-0"
-          aria-label={isPlaying ? 'Pause' : 'Play'}
-        >
-          {isPlaying ? (
-            <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
-            </svg>
-          ) : (
-            <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M8 5v14l11-7z" />
-            </svg>
-          )}
-        </button>
+        {showMini && (
+          <>
+            <div className="flex-1 min-w-0 cursor-pointer" onClick={handleMaximize}>
+              <p className="text-sm font-medium text-(--color-text-primary) truncate">
+                {currentVideo.title}
+              </p>
+              <p className="text-[11px] text-(--color-text-muted) truncate">
+                {currentVideo.category.name}
+              </p>
+            </div>
 
-        {/* Close */}
-        <button
-          onClick={(e) => { e.stopPropagation(); closePlayer(); }}
-          className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors flex-shrink-0"
-          aria-label="Close player"
-        >
-          <svg className="w-4.5 h-4.5 text-white/70" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M18 6L6 18M6 6l12 12" />
-          </svg>
-        </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                player.actions.togglePlay();
+              }}
+              className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors flex-shrink-0"
+              aria-label={player.state.isPlaying ? 'Pause' : 'Play'}
+            >
+              {player.state.isPlaying ? (
+                <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+                </svg>
+              ) : (
+                <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+              )}
+            </button>
+
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                closePlayer();
+              }}
+              className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors shrink-0"
+              aria-label="Close player"
+            >
+              <svg className="w-4.5 h-4.5 text-white/70" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M18 6L6 18M6 6l12 12" />
+              </svg>
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

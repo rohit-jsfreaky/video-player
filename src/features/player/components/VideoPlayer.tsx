@@ -15,6 +15,7 @@ interface VideoPlayerProps {
   video: Video;
   player: UseVideoPlayerReturn;
   onDragDown?: () => void;
+  compact?: boolean;
   className?: string;
 }
 
@@ -22,10 +23,10 @@ export const VideoPlayer = memo(function VideoPlayer({
   video,
   player,
   onDragDown,
+  compact = false,
   className,
 }: VideoPlayerProps) {
   const { playerRef, state, actions } = player;
-  const youtubeOrigin = typeof window !== 'undefined' ? window.location.origin : undefined;
 
   // ── Double-tap to skip ──────────────────────────────────────────────
   const lastTapTime = useRef(0);
@@ -40,6 +41,8 @@ export const VideoPlayer = memo(function VideoPlayer({
   const suppressTapRef = useRef(false);
 
   const handleSurfaceClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (compact) return;
+
     if (suppressTapRef.current) {
       suppressTapRef.current = false;
       return;
@@ -84,9 +87,10 @@ export const VideoPlayer = memo(function VideoPlayer({
         actions.toggleControls();
       }, 300);
     }
-  }, [actions, state.controlsVisible]);
+  }, [actions, state.controlsVisible, compact]);
 
   const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (compact) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
 
     setIsDragging(true);
@@ -94,9 +98,10 @@ export const VideoPlayer = memo(function VideoPlayer({
     dragStartTimeRef.current = Date.now();
     suppressTapRef.current = false;
     e.currentTarget.setPointerCapture(e.pointerId);
-  }, []);
+  }, [compact]);
 
   const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (compact) return;
     if (!isDragging) return;
     const delta = e.clientY - dragStartYRef.current;
     if (delta > 0) {
@@ -107,9 +112,10 @@ export const VideoPlayer = memo(function VideoPlayer({
     } else {
       setDragY(0);
     }
-  }, [isDragging]);
+  }, [isDragging, compact]);
 
   const handlePointerUp = useCallback(() => {
+    if (compact) return;
     if (!isDragging) return;
 
     const velocity = dragY / (Date.now() - dragStartTimeRef.current + 1);
@@ -121,7 +127,7 @@ export const VideoPlayer = memo(function VideoPlayer({
     if (shouldMinimize) {
       onDragDown?.();
     }
-  }, [isDragging, dragY, onDragDown]);
+  }, [isDragging, dragY, onDragDown, compact]);
 
   useEffect(() => {
     return () => {
@@ -135,11 +141,11 @@ export const VideoPlayer = memo(function VideoPlayer({
     <div
       className={cn(
         'relative bg-black overflow-hidden',
-        'aspect-video w-full',
+        compact ? 'w-full h-full' : 'aspect-video w-full',
         className,
       )}
       style={{
-        transform: dragY > 0 ? `translateY(${dragY}px) scale(${Math.max(0.92, 1 - dragY / 1200)})` : undefined,
+        transform: !compact && dragY > 0 ? `translateY(${dragY}px) scale(${Math.max(0.92, 1 - dragY / 1200)})` : undefined,
         transition: isDragging ? 'none' : 'transform 0.25s cubic-bezier(0.32, 0.72, 0, 1)',
       }}
     >
@@ -148,7 +154,7 @@ export const VideoPlayer = memo(function VideoPlayer({
         <ReactPlayer
           ref={playerRef}
           src={video.mediaUrl}
-          playing={state.isPlaying && state.isReady}
+          playing={state.isPlaying}
           volume={state.volume}
           muted={state.isMuted}
           width="100%"
@@ -167,33 +173,34 @@ export const VideoPlayer = memo(function VideoPlayer({
           onLeavePictureInPicture={actions._onLeavePictureInPicture}
           config={{
             youtube: {
+              fs: 0,
               rel: 0,
               iv_load_policy: 3,
               disablekb: 1,
               enablejsapi: 1,
-              origin: youtubeOrigin,
-              widget_referrer: youtubeOrigin,
             },
           }}
-          style={{ position: 'absolute', top: 0, left: 0 }}
+          style={{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none' }}
         />
       </div>
 
       {/* ── Interaction Layer (captures tap/drag above iframe) ─────────── */}
-      <div
-        className="absolute inset-0 z-[5] touch-none"
-        onClick={handleSurfaceClick}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerUp}
-      />
+      {!compact && (
+        <div
+          className="absolute inset-0 z-[5] touch-none"
+          onClick={handleSurfaceClick}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
+        />
+      )}
 
       {/* ── Skip Animation Overlay ───────────────────────────────────────── */}
-      <SkipAnimation direction={skipDir} triggerKey={skipKey} />
+      {!compact && <SkipAnimation direction={skipDir} triggerKey={skipKey} />}
 
       {/* ── Custom Controls Overlay ──────────────────────────────────────── */}
-      <PlayerControls state={state} actions={actions} />
+      {!compact && <PlayerControls state={state} actions={actions} />}
     </div>
   );
 });

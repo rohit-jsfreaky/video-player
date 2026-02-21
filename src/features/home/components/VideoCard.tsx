@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import type { Video } from '@/features/videos/types/video';
 import { Badge } from '@/components/ui/Badge';
 import { formatDuration } from '@/lib/utils';
+import { usePlayer } from '@/app/store/playerStore';
 
 // ─── Video Card ─────────────────────────────────────────────────────────────
 // Displays a single video in the home feed grid.
@@ -13,8 +14,11 @@ interface VideoCardProps {
 
 export function VideoCard({ video }: VideoCardProps) {
   const navigate = useNavigate();
+  const { playVideo, maximize } = usePlayer();
 
   const handleClick = () => {
+    playVideo(video);
+    maximize();
     navigate(`/player/${video.slug}`);
   };
 

@@ -41,7 +41,7 @@ export function VideoListPanel({
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
     isDragging.current = true;
     dragStartY.current = e.clientY;
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    e.currentTarget.setPointerCapture(e.pointerId);
   }, []);
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
