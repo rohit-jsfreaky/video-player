@@ -11,6 +11,15 @@ function getBufferedFraction(el: HTMLVideoElement): number {
   return el.buffered.end(el.buffered.length - 1) / el.duration;
 }
 
+/** Detect whether the current element supports the standard PiP API */
+function supportsPiP(el: HTMLVideoElement | null): boolean {
+  if (!el || typeof document === 'undefined') return false;
+  return (
+    typeof (el as HTMLVideoElement & { requestPictureInPicture?: () => Promise<PictureInPictureWindow> }).requestPictureInPicture === 'function'
+    && document.pictureInPictureEnabled
+  );
+}
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface UseVideoPlayerOptions {
@@ -18,6 +27,18 @@ export interface UseVideoPlayerOptions {
   video: Video | null;
   /** Auto-play on mount / video change */
   autoPlay?: boolean;
+  /** Initial playback time (seconds) when mounting a new player instance */
+  initialTime?: number;
+  /** Initial duration (seconds), used as a placeholder until metadata loads */
+  initialDuration?: number;
+  /** Initial buffered fraction (0-1) */
+  initialBuffered?: number;
+  /** Initial volume */
+  initialVolume?: number;
+  /** Initial muted flag */
+  initialMuted?: boolean;
+  /** Initial playback flag */
+  initialIsPlaying?: boolean;
 }
 
 export interface VideoPlayerState {
@@ -31,6 +52,8 @@ export interface VideoPlayerState {
   isBuffering: boolean;
   hasEnded: boolean;
   controlsVisible: boolean;
+  canPiP: boolean;
+  isPiPActive: boolean;
 }
 
 export interface VideoPlayerActions {
@@ -41,6 +64,9 @@ export interface VideoPlayerActions {
   seekRelative: (delta: number) => void;
   setVolume: (vol: number) => void;
   toggleMute: () => void;
+  enterPiP: () => Promise<void>;
+  exitPiP: () => Promise<void>;
+  togglePiP: () => Promise<void>;
   showControls: () => void;
   hideControls: () => void;
   toggleControls: () => void;
@@ -53,6 +79,8 @@ export interface VideoPlayerActions {
   _onEnded: (e: SyntheticEvent<HTMLVideoElement>) => void;
   _onPlay: (e: SyntheticEvent<HTMLVideoElement>) => void;
   _onPause: (e: SyntheticEvent<HTMLVideoElement>) => void;
+  _onEnterPictureInPicture: (e: Event) => void;
+  _onLeavePictureInPicture: (e: Event) => void;
 }
 
 export interface UseVideoPlayerReturn {
@@ -66,40 +94,82 @@ export interface UseVideoPlayerReturn {
 export function useVideoPlayer({
   video,
   autoPlay = true,
+  initialTime = 0,
+  initialDuration = 0,
+  initialBuffered = 0,
+  initialVolume = 1,
+  initialMuted = false,
+  initialIsPlaying,
 }: UseVideoPlayerOptions): UseVideoPlayerReturn {
   const playerRef = useRef<HTMLVideoElement | null>(null);
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingInitialSeekRef = useRef<number | null>(null);
+  const initialPlaybackRef = useRef({
+    time: initialTime,
+    duration: initialDuration,
+    buffered: initialBuffered,
+    volume: initialVolume,
+    muted: initialMuted,
+    playing: initialIsPlaying ?? autoPlay,
+  });
 
-  const [isPlaying, setIsPlaying] = useState(autoPlay);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [buffered, setBuffered] = useState(0);
-  const [volume, setVolumeState] = useState(1);
-  const [isMuted, setIsMuted] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(initialIsPlaying ?? autoPlay);
+  const [currentTime, setCurrentTime] = useState(initialTime);
+  const [duration, setDuration] = useState(initialDuration);
+  const [buffered, setBuffered] = useState(initialBuffered);
+  const [volume, setVolumeState] = useState(initialVolume);
+  const [isMuted, setIsMuted] = useState(initialMuted);
   const [isReady, setIsReady] = useState(false);
   const [isBuffering, setIsBuffering] = useState(false);
   const [hasEnded, setHasEnded] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
+  const [canPiP, setCanPiP] = useState(false);
+  const [isPiPActive, setIsPiPActive] = useState(false);
 
   // Use refs for values needed in callbacks to avoid stale closures
   const currentTimeRef = useRef(currentTime);
   const durationRef = useRef(duration);
   const isPlayingRef = useRef(isPlaying);
 
-  currentTimeRef.current = currentTime;
-  durationRef.current = duration;
-  isPlayingRef.current = isPlaying;
+  useEffect(() => {
+    initialPlaybackRef.current = {
+      time: initialTime,
+      duration: initialDuration,
+      buffered: initialBuffered,
+      volume: initialVolume,
+      muted: initialMuted,
+      playing: initialIsPlaying ?? autoPlay,
+    };
+  }, [initialTime, initialDuration, initialBuffered, initialVolume, initialMuted, initialIsPlaying, autoPlay]);
+
+  useEffect(() => {
+    currentTimeRef.current = currentTime;
+  }, [currentTime]);
+
+  useEffect(() => {
+    durationRef.current = duration;
+  }, [duration]);
+
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+  }, [isPlaying]);
 
   // ── Reset on video change ─────────────────────────────────────────────
   useEffect(() => {
-    setCurrentTime(0);
-    setDuration(0);
-    setBuffered(0);
+    const initial = initialPlaybackRef.current;
+    setCurrentTime(initial.time);
+    setDuration(initial.duration);
+    setBuffered(initial.buffered);
     setIsReady(false);
     setIsBuffering(false);
     setHasEnded(false);
-    setIsPlaying(autoPlay);
+    setIsPlaying(initial.playing);
+    setVolumeState(initial.volume);
+    setIsMuted(initial.muted);
     setControlsVisible(true);
+    setCanPiP(false);
+    setIsPiPActive(false);
+    pendingInitialSeekRef.current = initial.time > 0 ? initial.time : null;
   }, [video?.id, autoPlay]);
 
   // ── Auto-hide controls timer ──────────────────────────────────────────
@@ -175,6 +245,39 @@ export function useVideoPlayer({
     setIsMuted((prev) => !prev);
   }, []);
 
+  const enterPiP = useCallback(async () => {
+    const el = playerRef.current as (HTMLVideoElement & {
+      requestPictureInPicture?: () => Promise<PictureInPictureWindow>;
+    }) | null;
+    if (!el || !supportsPiP(el)) return;
+    if (document.pictureInPictureElement) return;
+
+    try {
+      await el.requestPictureInPicture?.();
+    } catch {
+      // Ignore API errors (unsupported provider, user denied, etc)
+    }
+  }, []);
+
+  const exitPiP = useCallback(async () => {
+    if (typeof document === 'undefined') return;
+    if (!document.pictureInPictureElement) return;
+    try {
+      await document.exitPictureInPicture();
+    } catch {
+      // Ignore API errors
+    }
+  }, []);
+
+  const togglePiP = useCallback(async () => {
+    if (typeof document === 'undefined') return;
+    if (document.pictureInPictureElement) {
+      await exitPiP();
+      return;
+    }
+    await enterPiP();
+  }, [enterPiP, exitPiP]);
+
   const showControls = useCallback(() => {
     setControlsVisible(true);
     startControlsTimer();
@@ -196,17 +299,45 @@ export function useVideoPlayer({
 
   const _onReady = useCallback(() => {
     setIsReady(true);
+    setCanPiP(supportsPiP(playerRef.current));
+
+    const pendingSeek = pendingInitialSeekRef.current;
+    if (pendingSeek !== null && playerRef.current) {
+      try {
+        playerRef.current.currentTime = pendingSeek;
+        setCurrentTime(pendingSeek);
+      } catch {
+        // Some providers only allow seek after metadata; retry on durationchange.
+      }
+    }
   }, []);
 
   const _onTimeUpdate = useCallback((e: SyntheticEvent<HTMLVideoElement>) => {
     const el = e.currentTarget;
     setCurrentTime(el.currentTime);
     setBuffered(getBufferedFraction(el));
+    if (pendingInitialSeekRef.current !== null) {
+      pendingInitialSeekRef.current = null;
+    }
   }, []);
 
   const _onDurationChange = useCallback((e: SyntheticEvent<HTMLVideoElement>) => {
     const d = e.currentTarget.duration;
-    if (Number.isFinite(d)) setDuration(d);
+    if (Number.isFinite(d)) {
+      setDuration(d);
+
+      const pendingSeek = pendingInitialSeekRef.current;
+      if (pendingSeek !== null && playerRef.current) {
+        const target = clamp(pendingSeek, 0, d);
+        try {
+          playerRef.current.currentTime = target;
+          setCurrentTime(target);
+          pendingInitialSeekRef.current = null;
+        } catch {
+          // Ignore and let player naturally continue from current time.
+        }
+      }
+    }
   }, []);
 
   const _onWaiting = useCallback(() => setIsBuffering(true), []);
@@ -226,6 +357,14 @@ export function useVideoPlayer({
     setIsPlaying(false);
   }, []);
 
+  const _onEnterPictureInPicture = useCallback(() => {
+    setIsPiPActive(true);
+  }, []);
+
+  const _onLeavePictureInPicture = useCallback(() => {
+    setIsPiPActive(false);
+  }, []);
+
   // ── Return ────────────────────────────────────────────────────────────
 
   const state: VideoPlayerState = {
@@ -239,6 +378,8 @@ export function useVideoPlayer({
     isBuffering,
     hasEnded,
     controlsVisible,
+    canPiP,
+    isPiPActive,
   };
 
   const actions: VideoPlayerActions = {
@@ -249,6 +390,9 @@ export function useVideoPlayer({
     seekRelative,
     setVolume,
     toggleMute,
+    enterPiP,
+    exitPiP,
+    togglePiP,
     showControls,
     hideControls,
     toggleControls,
@@ -260,6 +404,8 @@ export function useVideoPlayer({
     _onEnded,
     _onPlay,
     _onPause,
+    _onEnterPictureInPicture,
+    _onLeavePictureInPicture,
   };
 
   return { playerRef, state, actions };

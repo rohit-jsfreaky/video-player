@@ -51,6 +51,19 @@ function VolumeIcon({ className, muted }: { className?: string; muted: boolean }
   );
 }
 
+function PiPIcon({ className, active }: { className?: string; active: boolean }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2.5" y="4" width="19" height="14" rx="2.5" />
+      {active ? (
+        <path d="M13 10h6v4h-6z" fill="currentColor" stroke="none" />
+      ) : (
+        <path d="M14 9.5h5v4h-5z" />
+      )}
+    </svg>
+  );
+}
+
 // ─── Player Controls ────────────────────────────────────────────────────────
 
 interface PlayerControlsProps {
@@ -60,20 +73,16 @@ interface PlayerControlsProps {
 }
 
 export function PlayerControls({ state, actions, className }: PlayerControlsProps) {
-  const { isPlaying, currentTime, duration, buffered, isMuted, controlsVisible, isBuffering } = state;
-  const { togglePlay, seekRelative, seekTo, toggleMute, toggleControls } = actions;
+  const { isPlaying, currentTime, duration, buffered, isMuted, controlsVisible, isBuffering, canPiP, isPiPActive } = state;
+  const { togglePlay, seekRelative, seekTo, toggleMute, togglePiP } = actions;
 
   return (
     <div
       className={cn(
-        'absolute inset-0 z-10 flex flex-col transition-opacity duration-200',
-        controlsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none',
+        'absolute inset-0 z-10 flex flex-col transition-opacity duration-200 pointer-events-none',
+        controlsVisible ? 'opacity-100' : 'opacity-0',
         className,
       )}
-      onClick={(e) => {
-        // Only toggle on background click, not on button clicks
-        if (e.target === e.currentTarget) toggleControls();
-      }}
     >
       {/* ── Gradient overlay ────────────────────────────────────────────── */}
       <div
@@ -84,10 +93,19 @@ export function PlayerControls({ state, actions, className }: PlayerControlsProp
       />
 
       {/* ── Top bar ─────────────────────────────────────────────────────── */}
-      <div className="relative z-10 flex items-center justify-end p-3">
+      <div className="relative z-10 flex items-center justify-end gap-2 p-3">
+        {canPiP && (
+          <button
+            onClick={() => { void togglePiP(); }}
+            className="w-9 h-9 flex items-center justify-center rounded-full bg-black/30 backdrop-blur-sm hover:bg-black/50 transition-colors pointer-events-auto"
+            aria-label={isPiPActive ? 'Exit Picture-in-Picture' : 'Enter Picture-in-Picture'}
+          >
+            <PiPIcon className="w-4.5 h-4.5 text-white" active={isPiPActive} />
+          </button>
+        )}
         <button
           onClick={toggleMute}
-          className="w-9 h-9 flex items-center justify-center rounded-full bg-black/30 backdrop-blur-sm hover:bg-black/50 transition-colors"
+          className="w-9 h-9 flex items-center justify-center rounded-full bg-black/30 backdrop-blur-sm hover:bg-black/50 transition-colors pointer-events-auto"
           aria-label={isMuted ? 'Unmute' : 'Mute'}
         >
           <VolumeIcon className="w-5 h-5 text-white" muted={isMuted} />
@@ -96,15 +114,12 @@ export function PlayerControls({ state, actions, className }: PlayerControlsProp
 
       {/* ── Center playback controls ────────────────────────────────────── */}
       <div
-        className="relative z-10 flex-1 flex items-center justify-center gap-12"
-        onClick={(e) => {
-          if (e.target === e.currentTarget) toggleControls();
-        }}
+        className="relative z-10 flex-1 flex items-center justify-center gap-12 pointer-events-none"
       >
         {/* Skip backward */}
         <button
           onClick={() => seekRelative(-10)}
-          className="w-12 h-12 flex items-center justify-center rounded-full bg-black/30 backdrop-blur-sm hover:bg-black/50 active:scale-90 transition-all"
+          className="w-12 h-12 flex items-center justify-center rounded-full bg-black/30 backdrop-blur-sm hover:bg-black/50 active:scale-90 transition-all pointer-events-auto"
           aria-label="Skip back 10 seconds"
         >
           <SkipIcon className="w-7 h-7 text-white" direction="backward" />
@@ -113,7 +128,7 @@ export function PlayerControls({ state, actions, className }: PlayerControlsProp
         {/* Play / Pause */}
         <button
           onClick={togglePlay}
-          className="w-16 h-16 flex items-center justify-center rounded-full bg-white/20 backdrop-blur-md hover:bg-white/30 active:scale-90 transition-all"
+          className="w-16 h-16 flex items-center justify-center rounded-full bg-white/20 backdrop-blur-md hover:bg-white/30 active:scale-90 transition-all pointer-events-auto"
           aria-label={isPlaying ? 'Pause' : 'Play'}
         >
           {isBuffering ? (
@@ -128,7 +143,7 @@ export function PlayerControls({ state, actions, className }: PlayerControlsProp
         {/* Skip forward */}
         <button
           onClick={() => seekRelative(10)}
-          className="w-12 h-12 flex items-center justify-center rounded-full bg-black/30 backdrop-blur-sm hover:bg-black/50 active:scale-90 transition-all"
+          className="w-12 h-12 flex items-center justify-center rounded-full bg-black/30 backdrop-blur-sm hover:bg-black/50 active:scale-90 transition-all pointer-events-auto"
           aria-label="Skip forward 10 seconds"
         >
           <SkipIcon className="w-7 h-7 text-white" direction="forward" />
@@ -136,12 +151,13 @@ export function PlayerControls({ state, actions, className }: PlayerControlsProp
       </div>
 
       {/* ── Bottom seek bar ─────────────────────────────────────────────── */}
-      <div className="relative z-10 px-4 pb-4">
+      <div className="relative z-10 px-4 pb-4 pointer-events-none">
         <SeekBar
           currentTime={currentTime}
           duration={duration}
           buffered={buffered}
           onSeek={seekTo}
+          className="pointer-events-auto"
         />
       </div>
     </div>

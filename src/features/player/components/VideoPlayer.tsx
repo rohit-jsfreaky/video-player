@@ -1,4 +1,4 @@
-import { memo, useCallback, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import ReactPlayer from 'react-player';
 import type { Video } from '@/features/videos/types/video';
 import type { UseVideoPlayerReturn } from '../hooks/useVideoPlayer';
@@ -14,25 +14,55 @@ import { cn } from '@/lib/utils';
 interface VideoPlayerProps {
   video: Video;
   player: UseVideoPlayerReturn;
+  onDragDown?: () => void;
   className?: string;
 }
 
-export const VideoPlayer = memo(function VideoPlayer({ video, player, className }: VideoPlayerProps) {
+export const VideoPlayer = memo(function VideoPlayer({
+  video,
+  player,
+  onDragDown,
+  className,
+}: VideoPlayerProps) {
   const { playerRef, state, actions } = player;
+  const youtubeOrigin = typeof window !== 'undefined' ? window.location.origin : undefined;
 
   // ── Double-tap to skip ──────────────────────────────────────────────
   const lastTapTime = useRef(0);
   const lastTapSide = useRef<'left' | 'right' | null>(null);
+  const singleTapTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [skipDir, setSkipDir] = useState<'forward' | 'backward' | null>(null);
   const [skipKey, setSkipKey] = useState(0);
+  const [dragY, setDragY] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartYRef = useRef(0);
+  const dragStartTimeRef = useRef(0);
+  const suppressTapRef = useRef(false);
 
-  const handleDoubleTap = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+  const handleSurfaceClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (suppressTapRef.current) {
+      suppressTapRef.current = false;
+      return;
+    }
+
+    if (!state.controlsVisible) {
+      actions.showControls();
+      lastTapTime.current = 0;
+      lastTapSide.current = null;
+      return;
+    }
+
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const side = x < rect.width / 2 ? 'left' : 'right';
     const now = Date.now();
 
     if (now - lastTapTime.current < 300 && lastTapSide.current === side) {
+      if (singleTapTimeoutRef.current) {
+        clearTimeout(singleTapTimeoutRef.current);
+        singleTapTimeoutRef.current = null;
+      }
+
       // Double tap detected
       if (side === 'right') {
         actions.seekRelative(10);
@@ -43,11 +73,63 @@ export const VideoPlayer = memo(function VideoPlayer({ video, player, className 
       }
       setSkipKey((k) => k + 1);
       lastTapTime.current = 0;
+      lastTapSide.current = null;
     } else {
       lastTapTime.current = now;
       lastTapSide.current = side;
+      if (singleTapTimeoutRef.current) {
+        clearTimeout(singleTapTimeoutRef.current);
+      }
+      singleTapTimeoutRef.current = setTimeout(() => {
+        actions.toggleControls();
+      }, 300);
     }
-  }, [actions]);
+  }, [actions, state.controlsVisible]);
+
+  const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+
+    setIsDragging(true);
+    dragStartYRef.current = e.clientY;
+    dragStartTimeRef.current = Date.now();
+    suppressTapRef.current = false;
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }, []);
+
+  const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDragging) return;
+    const delta = e.clientY - dragStartYRef.current;
+    if (delta > 0) {
+      setDragY(delta);
+      if (delta > 8) {
+        suppressTapRef.current = true;
+      }
+    } else {
+      setDragY(0);
+    }
+  }, [isDragging]);
+
+  const handlePointerUp = useCallback(() => {
+    if (!isDragging) return;
+
+    const velocity = dragY / (Date.now() - dragStartTimeRef.current + 1);
+    const shouldMinimize = dragY > 90 || velocity > 0.65;
+
+    setIsDragging(false);
+    setDragY(0);
+
+    if (shouldMinimize) {
+      onDragDown?.();
+    }
+  }, [isDragging, dragY, onDragDown]);
+
+  useEffect(() => {
+    return () => {
+      if (singleTapTimeoutRef.current) {
+        clearTimeout(singleTapTimeoutRef.current);
+      }
+    };
+  }, []);
 
   return (
     <div
@@ -56,14 +138,17 @@ export const VideoPlayer = memo(function VideoPlayer({ video, player, className 
         'aspect-video w-full',
         className,
       )}
-      onClick={handleDoubleTap}
+      style={{
+        transform: dragY > 0 ? `translateY(${dragY}px) scale(${Math.max(0.92, 1 - dragY / 1200)})` : undefined,
+        transition: isDragging ? 'none' : 'transform 0.25s cubic-bezier(0.32, 0.72, 0, 1)',
+      }}
     >
       {/* ── ReactPlayer ──────────────────────────────────────────────────── */}
       <div className="absolute inset-0">
         <ReactPlayer
           ref={playerRef}
           src={video.mediaUrl}
-          playing={state.isPlaying}
+          playing={state.isPlaying && state.isReady}
           volume={state.volume}
           muted={state.isMuted}
           width="100%"
@@ -78,17 +163,31 @@ export const VideoPlayer = memo(function VideoPlayer({ video, player, className 
           onEnded={actions._onEnded}
           onPlay={actions._onPlay}
           onPause={actions._onPause}
+          onEnterPictureInPicture={actions._onEnterPictureInPicture}
+          onLeavePictureInPicture={actions._onLeavePictureInPicture}
           config={{
             youtube: {
               rel: 0,
               iv_load_policy: 3,
               disablekb: 1,
               enablejsapi: 1,
+              origin: youtubeOrigin,
+              widget_referrer: youtubeOrigin,
             },
           }}
           style={{ position: 'absolute', top: 0, left: 0 }}
         />
       </div>
+
+      {/* ── Interaction Layer (captures tap/drag above iframe) ─────────── */}
+      <div
+        className="absolute inset-0 z-[5] touch-none"
+        onClick={handleSurfaceClick}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+      />
 
       {/* ── Skip Animation Overlay ───────────────────────────────────────── */}
       <SkipAnimation direction={skipDir} triggerKey={skipKey} />

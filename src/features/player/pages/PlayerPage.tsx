@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { useMemo, useState, useCallback, useEffect } from 'react';
+import { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { getVideoBySlug, getNextVideo, getVideosByCategorySlug } from '@/features/videos/api/videoService';
 import { VideoPlayer } from '../components/VideoPlayer';
 import { VideoListPanel } from '../components/VideoListPanel';
@@ -21,7 +21,15 @@ import type { Video } from '@/features/videos/types/video';
 const PlayerPage = () => {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
-  const { playVideo, minimize } = usePlayer();
+  const {
+    state: playerStoreState,
+    dispatch,
+    playVideo,
+    minimize,
+    setPlaybackState,
+    setPlaybackProgress,
+  } = usePlayer();
+  const isSurfaceTransitionRef = useRef(false);
 
   const video = useMemo(() => (slug ? getVideoBySlug(slug) : undefined), [slug]);
   const categoryVideos = useMemo(
@@ -30,7 +38,23 @@ const PlayerPage = () => {
   );
   const nextVideo = useMemo(() => (video ? getNextVideo(video) : undefined), [video]);
 
-  const player = useVideoPlayer({ video: video ?? null, autoPlay: true });
+  const isRestoringCurrentVideoSession = useMemo(
+    () => Boolean(video && playerStoreState.currentVideo?.id === video.id),
+    [video, playerStoreState.currentVideo?.id],
+  );
+
+  const player = useVideoPlayer({
+    video: video ?? null,
+    autoPlay: true,
+    initialTime: isRestoringCurrentVideoSession ? playerStoreState.currentTime : 0,
+    initialDuration: isRestoringCurrentVideoSession ? playerStoreState.duration : 0,
+    initialBuffered: isRestoringCurrentVideoSession ? playerStoreState.buffered : 0,
+    initialVolume: playerStoreState.volume,
+    initialMuted: playerStoreState.isMuted,
+    initialIsPlaying: isRestoringCurrentVideoSession
+      ? playerStoreState.playbackState === 'playing'
+      : true,
+  });
 
   // ── Video List Panel state ────────────────────────────────────────────
   const [isListOpen, setIsListOpen] = useState(false);
@@ -73,11 +97,71 @@ const PlayerPage = () => {
     }
   }, [video, playVideo]);
 
+  // ── Persist playback session so minimize/maximize can resume ──────────
+  useEffect(() => {
+    setPlaybackProgress({
+      currentTime: player.state.currentTime,
+      duration: player.state.duration,
+      buffered: player.state.buffered,
+      isBuffering: player.state.isBuffering,
+    });
+  }, [
+    player.state.currentTime,
+    player.state.duration,
+    player.state.buffered,
+    player.state.isBuffering,
+    setPlaybackProgress,
+  ]);
+
+  useEffect(() => {
+    if (isSurfaceTransitionRef.current && !player.state.isPlaying && !player.state.hasEnded) {
+      return;
+    }
+
+    if (player.state.hasEnded) {
+      setPlaybackState('ended');
+      return;
+    }
+    if (player.state.isBuffering) {
+      setPlaybackState('buffering');
+      return;
+    }
+    setPlaybackState(player.state.isPlaying ? 'playing' : 'paused');
+  }, [player.state.hasEnded, player.state.isBuffering, player.state.isPlaying, setPlaybackState]);
+
+  useEffect(() => {
+    dispatch({ type: 'SET_PIP_SUPPORTED', payload: player.state.canPiP });
+    dispatch({ type: 'SET_PIP_ACTIVE', payload: player.state.isPiPActive });
+  }, [dispatch, player.state.canPiP, player.state.isPiPActive]);
+
+  useEffect(() => {
+    if (playerStoreState.isMuted !== player.state.isMuted) {
+      dispatch({ type: 'SET_MUTED', payload: player.state.isMuted });
+    }
+    if (Math.abs(playerStoreState.volume - player.state.volume) > 0.001) {
+      dispatch({ type: 'SET_VOLUME', payload: player.state.volume });
+    }
+  }, [
+    dispatch,
+    playerStoreState.isMuted,
+    playerStoreState.volume,
+    player.state.isMuted,
+    player.state.volume,
+  ]);
+
   // ── Minimize handler ──────────────────────────────────────────────────
   const handleMinimize = useCallback(() => {
+    isSurfaceTransitionRef.current = true;
+    setPlaybackProgress({
+      currentTime: player.playerRef.current?.currentTime ?? player.state.currentTime,
+      duration: player.playerRef.current?.duration || player.state.duration,
+      buffered: player.state.buffered,
+      isBuffering: false,
+    });
+    setPlaybackState('playing');
     minimize();
     navigate('/', { replace: false });
-  }, [minimize, navigate]);
+  }, [minimize, navigate, player.playerRef, player.state.currentTime, player.state.duration, player.state.buffered, setPlaybackProgress, setPlaybackState]);
 
   const handleSelectVideo = useCallback(
     (_video: Video) => {
@@ -112,7 +196,7 @@ const PlayerPage = () => {
       {/* ── Video Player ───────────────────────────────────────────────── */}
       <div className="sticky top-0 z-20 bg-black">
         <div className="max-w-5xl mx-auto relative">
-          <VideoPlayer video={video} player={player} />
+          <VideoPlayer video={video} player={player} onDragDown={handleMinimize} />
 
           {/* Auto-play countdown overlay */}
           {showCountdown && nextVideo && (

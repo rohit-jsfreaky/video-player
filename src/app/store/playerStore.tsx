@@ -18,18 +18,36 @@ interface PlayerStoreState {
   isMinimized: boolean;
   /** Playback state machine */
   playbackState: PlaybackState;
+  /** Current playback time (seconds) */
+  currentTime: number;
+  /** Media duration (seconds) */
+  duration: number;
+  /** Buffered fraction (0-1) */
+  buffered: number;
+  /** Whether player is currently buffering */
+  isBuffering: boolean;
   /** Volume level 0–1 */
   volume: number;
   /** Whether audio is muted */
   isMuted: boolean;
+  /** Whether PiP is currently active */
+  isPiPActive: boolean;
+  /** Whether current player source supports PiP */
+  isPiPSupported: boolean;
 }
 
 const INITIAL_STATE: PlayerStoreState = {
   currentVideo: null,
   isMinimized: false,
   playbackState: 'idle',
+  currentTime: 0,
+  duration: 0,
+  buffered: 0,
+  isBuffering: false,
   volume: 1,
   isMuted: false,
+  isPiPActive: false,
+  isPiPSupported: false,
 };
 
 // ─── Actions ────────────────────────────────────────────────────────────────
@@ -37,28 +55,57 @@ const INITIAL_STATE: PlayerStoreState = {
 type PlayerAction =
   | { type: 'PLAY_VIDEO'; payload: Video }
   | { type: 'SET_PLAYBACK_STATE'; payload: PlaybackState }
+  | {
+    type: 'SET_PLAYBACK_PROGRESS';
+    payload: {
+      currentTime?: number;
+      duration?: number;
+      buffered?: number;
+      isBuffering?: boolean;
+    };
+  }
   | { type: 'MINIMIZE' }
   | { type: 'MAXIMIZE' }
   | { type: 'CLOSE_PLAYER' }
   | { type: 'TOGGLE_MUTE' }
-  | { type: 'SET_VOLUME'; payload: number };
+  | { type: 'SET_VOLUME'; payload: number }
+  | { type: 'SET_MUTED'; payload: boolean }
+  | { type: 'SET_PIP_SUPPORTED'; payload: boolean }
+  | { type: 'SET_PIP_ACTIVE'; payload: boolean };
 
 // ─── Reducer ────────────────────────────────────────────────────────────────
 
 function playerReducer(state: PlayerStoreState, action: PlayerAction): PlayerStoreState {
   switch (action.type) {
-    case 'PLAY_VIDEO':
+    case 'PLAY_VIDEO': {
+      const isSameVideo = state.currentVideo?.id === action.payload.id;
       return {
         ...state,
         currentVideo: action.payload,
         isMinimized: false,
-        playbackState: 'playing',
+        playbackState: isSameVideo ? state.playbackState : 'playing',
+        currentTime: isSameVideo ? state.currentTime : 0,
+        duration: isSameVideo ? state.duration : 0,
+        buffered: isSameVideo ? state.buffered : 0,
+        isBuffering: false,
+        isPiPActive: false,
       };
+    }
 
     case 'SET_PLAYBACK_STATE':
       return {
         ...state,
         playbackState: action.payload,
+        isBuffering: action.payload === 'buffering',
+      };
+
+    case 'SET_PLAYBACK_PROGRESS':
+      return {
+        ...state,
+        currentTime: action.payload.currentTime ?? state.currentTime,
+        duration: action.payload.duration ?? state.duration,
+        buffered: action.payload.buffered ?? state.buffered,
+        isBuffering: action.payload.isBuffering ?? state.isBuffering,
       };
 
     case 'MINIMIZE':
@@ -93,6 +140,24 @@ function playerReducer(state: PlayerStoreState, action: PlayerAction): PlayerSto
         isMuted: action.payload === 0,
       };
 
+    case 'SET_MUTED':
+      return {
+        ...state,
+        isMuted: action.payload,
+      };
+
+    case 'SET_PIP_SUPPORTED':
+      return {
+        ...state,
+        isPiPSupported: action.payload,
+      };
+
+    case 'SET_PIP_ACTIVE':
+      return {
+        ...state,
+        isPiPActive: action.payload,
+      };
+
     default:
       return state;
   }
@@ -113,6 +178,15 @@ interface PlayerContextValue {
   closePlayer: () => void;
   /** Convenience: toggle play/pause */
   togglePlayback: () => void;
+  /** Convenience: set precise playback status */
+  setPlaybackState: (playbackState: PlaybackState) => void;
+  /** Convenience: sync playback progress fields */
+  setPlaybackProgress: (progress: {
+    currentTime?: number;
+    duration?: number;
+    buffered?: number;
+    isBuffering?: boolean;
+  }) => void;
   /** Whether any video is actively loaded */
   hasVideo: boolean;
   /** Whether playback is in a playing state */
@@ -134,6 +208,18 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const minimize = useCallback(() => dispatch({ type: 'MINIMIZE' }), []);
   const maximize = useCallback(() => dispatch({ type: 'MAXIMIZE' }), []);
   const closePlayer = useCallback(() => dispatch({ type: 'CLOSE_PLAYER' }), []);
+  const setPlaybackState = useCallback(
+    (playbackState: PlaybackState) => dispatch({ type: 'SET_PLAYBACK_STATE', payload: playbackState }),
+    [],
+  );
+  const setPlaybackProgress = useCallback((progress: {
+    currentTime?: number;
+    duration?: number;
+    buffered?: number;
+    isBuffering?: boolean;
+  }) => {
+    dispatch({ type: 'SET_PLAYBACK_PROGRESS', payload: progress });
+  }, []);
 
   const togglePlayback = useCallback(() => {
     dispatch({
@@ -151,10 +237,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       maximize,
       closePlayer,
       togglePlayback,
+      setPlaybackState,
+      setPlaybackProgress,
       hasVideo: state.currentVideo !== null,
-      isPlaying: state.playbackState === 'playing',
+      isPlaying: state.playbackState === 'playing' || state.playbackState === 'buffering',
     }),
-    [state, playVideo, minimize, maximize, closePlayer, togglePlayback],
+    [state, playVideo, minimize, maximize, closePlayer, togglePlayback, setPlaybackState, setPlaybackProgress],
   );
 
   return <PlayerContext.Provider value={value}>{children}</PlayerContext.Provider>;

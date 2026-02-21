@@ -41,7 +41,7 @@ export function SeekBar({ currentTime, duration, buffered, onSeek, className }: 
     (e: PointerEvent) => {
       e.preventDefault();
       isDraggingRef.current = true;
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      e.currentTarget.setPointerCapture(e.pointerId);
       onSeek(getTimeFromPointer(e.clientX));
     },
     [getTimeFromPointer, onSeek],
