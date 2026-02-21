@@ -1,4 +1,5 @@
 import { useCallback, useRef, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import type { Video } from '@/features/videos/types/video';
 import { formatDuration, cn } from '@/lib/utils';
@@ -27,8 +28,13 @@ export function VideoListPanel({
   const panelRef = useRef<HTMLDivElement>(null);
   const [dragOffset, setDragOffset] = useState(0);
   const [isVisible, setIsVisible] = useState(false);
+  const [portalRoot, setPortalRoot] = useState<HTMLElement | null>(null);
   const dragStartY = useRef(0);
   const isDragging = useRef(false);
+
+  useEffect(() => {
+    setPortalRoot(document.body);
+  }, []);
 
   useEffect(() => {
     if (isOpen) {
@@ -78,9 +84,9 @@ export function VideoListPanel({
     [onSelectVideo, navigate, onClose],
   );
 
-  if (!isOpen) return null;
+  if (!isOpen || !portalRoot) return null;
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-40 flex flex-col">
       {/* Backdrop */}
       <div
@@ -206,5 +212,7 @@ export function VideoListPanel({
         </div>
       </div>
     </div>
+    ,
+    portalRoot,
   );
 }
