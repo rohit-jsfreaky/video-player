@@ -1,6 +1,7 @@
 import { Suspense } from 'react';
 import { usePlayer } from '@/app/store/playerStore';
 import { AppRoutes } from '@/app/router';
+import { MiniPlayer } from '@/features/player/components/MiniPlayer';
 import { cn } from '@/lib/utils';
 
 // ─── Loading Fallback ───────────────────────────────────────────────────────
@@ -41,8 +42,8 @@ export function AppLayout() {
         </Suspense>
       </main>
 
-      {/* ── Mini-player dock slot (rendered in Phase 6) ────────────────── */}
-      {/* <MiniPlayer /> will be placed here */}
+      {/* ── Mini-player dock ──────────────────────────────────────────── */}
+      <MiniPlayer />
     </div>
   );
 }

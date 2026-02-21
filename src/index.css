@@ -80,3 +80,28 @@ body {
     scrollbar-width: none;
   }
 }
+
+/* ─── Utility: safe-area bottom ──────────────────────────────────────────── */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* ─── Focus visible reset ────────────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.3);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ─── Selection ──────────────────────────────────────────────────────────── */
+::selection {
+  background: var(--color-accent);
+  color: white;
+}
+
+/* ─── Smooth scrolling ───────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
