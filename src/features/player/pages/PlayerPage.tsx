@@ -71,11 +71,11 @@ const PlayerPage = () => {
 
   // ── Sync global store when video loads ────────────────────────────────
   useEffect(() => {
-    if (video) {
+    if (!video) return;
+    if (playerStoreState.currentVideo?.id !== video.id) {
       playVideo(video);
-      maximize();
     }
-  }, [video, playVideo, maximize]);
+  }, [video, playVideo, playerStoreState.currentVideo?.id]);
 
   // ── Minimize handler ──────────────────────────────────────────────────
   const handleMinimize = useCallback(() => {
@@ -140,7 +140,10 @@ const PlayerPage = () => {
         <div className="flex items-center gap-2">
           {/* Back */}
           <button
-            onClick={() => navigate('/')}
+            onClick={() => {
+              minimize();
+              navigate('/');
+            }}
             className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-full bg-white/5 text-(--color-text-secondary) hover:bg-white/10 transition-colors"
           >
             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

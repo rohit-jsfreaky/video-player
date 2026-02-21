@@ -29,8 +29,9 @@ export const MiniPlayer = memo(function MiniPlayer() {
 
   const { currentVideo, isMinimized } = state;
   const isPlayerRoute = location.pathname.startsWith('/player/');
+  const [isMaximizingTransition, setIsMaximizingTransition] = useState(false);
   const showFullscreen = Boolean(hasVideo && currentVideo && !isMinimized && isPlayerRoute);
-  const showMini = Boolean(hasVideo && currentVideo && isMinimized);
+  const showMini = Boolean(hasVideo && currentVideo && (isMinimized || isMaximizingTransition));
 
   const player = useVideoPlayer({
     video: currentVideo,
@@ -42,18 +43,6 @@ export const MiniPlayer = memo(function MiniPlayer() {
     initialMuted: state.isMuted,
     initialIsPlaying: state.playbackState === 'playing' || state.playbackState === 'buffering',
   });
-
-  useEffect(() => {
-    if (currentVideo && !isMinimized && !isPlayerRoute) {
-      minimize();
-    }
-  }, [currentVideo, isMinimized, isPlayerRoute, minimize]);
-
-  useEffect(() => {
-    if (currentVideo && isMinimized && isPlayerRoute) {
-      maximize();
-    }
-  }, [currentVideo, isMinimized, isPlayerRoute, maximize]);
 
   // ── Keep store in sync with live player state ─────────────────────────
   useEffect(() => {
@@ -109,6 +98,12 @@ export const MiniPlayer = memo(function MiniPlayer() {
     }
   }, [dispatch, player.state.isMuted, player.state.volume, state.isMuted, state.volume]);
 
+  useEffect(() => {
+    if (!currentVideo || isMinimized || showFullscreen) {
+      setIsMaximizingTransition(false);
+    }
+  }, [currentVideo, isMinimized, showFullscreen]);
+
   // ── Mini drag state ───────────────────────────────────────────────────
   const [dragY, setDragY] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
@@ -133,15 +128,46 @@ export const MiniPlayer = memo(function MiniPlayer() {
 
   const handleMaximize = useCallback(() => {
     if (!currentVideo) return;
+    setIsMaximizingTransition(true);
+    const snapshotTime =
+      player.state.currentTime > 0
+        ? player.state.currentTime
+        : (player.playerRef.current?.currentTime ?? state.currentTime);
+    const snapshotDuration =
+      player.state.duration > 0
+        ? player.state.duration
+        : (player.playerRef.current?.duration || state.duration);
+
     setPlaybackProgress({
-      currentTime: player.playerRef.current?.currentTime ?? player.state.currentTime,
-      duration: player.playerRef.current?.duration || player.state.duration,
+      currentTime: snapshotTime,
+      duration: snapshotDuration,
       buffered: player.state.buffered,
       isBuffering: false,
     });
-    maximize();
     navigate(`/player/${currentVideo.slug}`);
-  }, [currentVideo, maximize, navigate, player.playerRef, player.state.buffered, player.state.currentTime, player.state.duration, setPlaybackProgress]);
+    maximize();
+    requestAnimationFrame(() => {
+      if (snapshotTime > 0.1) {
+        player.actions.seekTo(snapshotTime);
+      }
+      if (!player.state.isPlaying) {
+        player.actions.play();
+      }
+    });
+  }, [
+    currentVideo,
+    maximize,
+    navigate,
+    player.actions,
+    player.playerRef,
+    player.state.buffered,
+    player.state.currentTime,
+    player.state.duration,
+    player.state.isPlaying,
+    setPlaybackProgress,
+    state.currentTime,
+    state.duration,
+  ]);
 
   const handleMinimize = useCallback(() => {
     if (!currentVideo) return;
