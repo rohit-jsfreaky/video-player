@@ -26,8 +26,17 @@ export function VideoListPanel({
 }: VideoListPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [dragOffset, setDragOffset] = useState(0);
+  const [isVisible, setIsVisible] = useState(false);
   const dragStartY = useRef(0);
   const isDragging = useRef(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      const id = requestAnimationFrame(() => setIsVisible(true));
+      return () => cancelAnimationFrame(id);
+    }
+    setIsVisible(false);
+  }, [isOpen]);
 
   // Scroll to the currently playing video when panel opens
   useEffect(() => {
@@ -72,17 +81,23 @@ export function VideoListPanel({
   if (!isOpen) return null;
 
   return (
-    <div className="absolute inset-0 z-30 flex flex-col">
+    <div className="fixed inset-0 z-40 flex flex-col">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/60 animate-fade-in"
+        className={cn(
+          'absolute inset-0 bg-black/70 transition-opacity duration-200',
+          isVisible ? 'opacity-100' : 'opacity-0',
+        )}
         onClick={onClose}
       />
 
       {/* Panel */}
       <div
         ref={panelRef}
-        className="relative mt-auto max-h-[70dvh] flex flex-col rounded-t-2xl bg-(--color-bg-secondary) animate-slide-up"
+        className={cn(
+          'relative mt-auto max-h-[78dvh] flex flex-col rounded-t-3xl border border-white/10 bg-(--color-bg-secondary) shadow-2xl overflow-hidden transition-transform duration-200 will-change-transform',
+          isVisible ? 'translate-y-0' : 'translate-y-4',
+        )}
         style={{
           transform: dragOffset > 0 ? `translateY(${dragOffset}px)` : undefined,
           transition: isDragging.current ? 'none' : 'transform 0.3s cubic-bezier(0.32, 0.72, 0, 1)',
@@ -90,28 +105,33 @@ export function VideoListPanel({
       >
         {/* Drag handle */}
         <div
-          className="flex justify-center pt-3 pb-2 cursor-grab active:cursor-grabbing touch-none"
+          className="flex justify-center pt-3 pb-2.5 cursor-grab active:cursor-grabbing touch-none bg-(--color-bg-secondary)"
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerUp}
         >
-          <div className="w-10 h-1 rounded-full bg-white/20" />
+          <div className="w-12 h-1 rounded-full bg-white/25" />
         </div>
 
         {/* Header */}
-        <div className="flex items-center justify-between px-4 pb-3 border-b border-white/5">
-          <div>
-            <h3 className="text-sm font-semibold text-(--color-text-primary)">
+        <div className="sticky top-0 z-10 flex items-center justify-between px-4 pb-3 border-b border-white/10 bg-(--color-bg-secondary)">
+          <div className="min-w-0">
+            <h3 className="text-base font-semibold text-(--color-text-primary)">
               Up Next
             </h3>
-            <p className="text-xs text-(--color-text-muted) mt-0.5">
-              {currentVideo.category.name} · {videos.length + 1} videos
-            </p>
+            <div className="mt-1 flex items-center gap-2">
+              <p className="text-xs text-(--color-text-muted)">
+                {currentVideo.category.name}
+              </p>
+              <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-white/10 text-(--color-text-secondary)">
+                {videos.length} videos
+              </span>
+            </div>
           </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 transition-colors"
+            className="w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/15 transition-colors"
             aria-label="Close list"
           >
             <svg className="w-4 h-4 text-white/70" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -121,7 +141,7 @@ export function VideoListPanel({
         </div>
 
         {/* Video list */}
-        <div className="flex-1 overflow-y-auto overscroll-contain py-2">
+        <div className="flex-1 overflow-y-auto overscroll-contain px-2 py-2">
           {videos.map((video, index) => {
             const isCurrent = video.id === currentVideo.id;
             return (
@@ -130,15 +150,15 @@ export function VideoListPanel({
                 id={`vl-${video.id}`}
                 onClick={() => !isCurrent && handleSelect(video)}
                 className={cn(
-                  'w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors',
+                  'w-full flex items-center gap-3 px-3 py-2.5 text-left rounded-xl transition-all mb-1',
                   isCurrent
-                    ? 'bg-(--color-accent)/10'
+                    ? 'bg-(--color-accent)/12 ring-1 ring-(--color-accent)/30'
                     : 'hover:bg-white/5 active:bg-white/10',
                 )}
               >
                 {/* Index / Now playing indicator */}
                 <span className={cn(
-                  'w-6 text-center text-xs font-medium flex-shrink-0',
+                  'w-6 text-center text-xs font-medium shrink-0',
                   isCurrent ? 'text-(--color-accent)' : 'text-(--color-text-muted)',
                 )}>
                   {isCurrent ? (
@@ -153,7 +173,7 @@ export function VideoListPanel({
                 </span>
 
                 {/* Thumbnail */}
-                <div className="relative w-24 flex-shrink-0 aspect-video rounded-md overflow-hidden">
+                <div className="relative w-24 shrink-0 aspect-video rounded-lg overflow-hidden border border-white/10">
                   <img
                     src={video.thumbnailUrl}
                     alt=""

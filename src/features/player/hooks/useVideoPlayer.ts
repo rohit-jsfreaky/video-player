@@ -130,6 +130,7 @@ export function useVideoPlayer({
   const currentTimeRef = useRef(currentTime);
   const durationRef = useRef(duration);
   const isPlayingRef = useRef(isPlaying);
+  const hasEndedRef = useRef(hasEnded);
 
   useEffect(() => {
     initialPlaybackRef.current = {
@@ -153,6 +154,10 @@ export function useVideoPlayer({
   useEffect(() => {
     isPlayingRef.current = isPlaying;
   }, [isPlaying]);
+
+  useEffect(() => {
+    hasEndedRef.current = hasEnded;
+  }, [hasEnded]);
 
   // ── Reset on video change ─────────────────────────────────────────────
   useEffect(() => {
@@ -314,10 +319,19 @@ export function useVideoPlayer({
 
   const _onTimeUpdate = useCallback((e: SyntheticEvent<HTMLVideoElement>) => {
     const el = e.currentTarget;
-    setCurrentTime(el.currentTime);
+    const ct = el.currentTime;
+    const d = el.duration;
+    setCurrentTime(ct);
     setBuffered(getBufferedFraction(el));
     if (pendingInitialSeekRef.current !== null) {
       pendingInitialSeekRef.current = null;
+    }
+    // Fallback: detect end when currentTime reaches duration
+    // (YouTube iframe doesn't always fire onEnded)
+    if (d > 0 && Number.isFinite(d) && ct >= d - 0.15 && !hasEndedRef.current) {
+      console.log('[useVideoPlayer] timeUpdate near-end fallback', { ct, d });
+      setHasEnded(true);
+      setIsPlaying(false);
     }
   }, []);
 
@@ -345,6 +359,7 @@ export function useVideoPlayer({
   const _onPlaying = useCallback(() => setIsBuffering(false), []);
 
   const _onEnded = useCallback(() => {
+    console.log('[useVideoPlayer] _onEnded fired');
     setHasEnded(true);
     setIsPlaying(false);
   }, []);

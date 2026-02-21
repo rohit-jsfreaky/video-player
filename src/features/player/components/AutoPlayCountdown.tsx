@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 
 // ─── Auto-Play Countdown ────────────────────────────────────────────────────
@@ -25,17 +25,33 @@ export function AutoPlayCountdown({
   className,
 }: AutoPlayCountdownProps) {
   const [remaining, setRemaining] = useState(seconds);
+  const hasCompletedRef = useRef(false);
 
+  // Keep callbacks in refs so the timer interval never resets
+  const onCompleteRef = useRef(onComplete);
+  useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
+
+  // Reset countdown whenever configured duration changes
+  useEffect(() => {
+    setRemaining(seconds);
+    hasCompletedRef.current = false;
+    console.log('[autoplay-countdown] reset', { seconds });
+  }, [seconds]);
+
+  // Countdown timer — only depends on `remaining`, never on callback identity
   useEffect(() => {
     if (remaining <= 0) {
-      onComplete();
+      if (hasCompletedRef.current) return;
+      hasCompletedRef.current = true;
+      console.log('[autoplay-countdown] complete');
+      onCompleteRef.current();
       return;
     }
     const timer = setInterval(() => {
       setRemaining((prev) => prev - 1);
     }, 1000);
     return () => clearInterval(timer);
-  }, [remaining, onComplete]);
+  }, [remaining]);
 
   // SVG ring animation
   const circumference = 2 * Math.PI * 20;

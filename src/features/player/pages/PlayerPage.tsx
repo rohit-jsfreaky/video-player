@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { useMemo, useState, useCallback, useEffect } from 'react';
-import { getVideoBySlug, getNextVideo, getVideosByCategorySlug } from '@/features/videos/api/videoService';
+import { useMemo, useState, useCallback, useEffect, useRef } from 'react';
+import { getVideoBySlug, getVideosByCategorySlug } from '@/features/videos/api/videoService';
 import { VideoListPanel } from '../components/VideoListPanel';
 import { AutoPlayCountdown } from '../components/AutoPlayCountdown';
 import { usePlayer } from '@/app/store/playerStore';
@@ -24,6 +24,7 @@ const PlayerPage = () => {
     playVideo,
     minimize,
     maximize,
+    setPlaybackProgress,
   } = usePlayer();
 
   const video = useMemo(() => (slug ? getVideoBySlug(slug) : undefined), [slug]);
@@ -31,7 +32,15 @@ const PlayerPage = () => {
     () => (video ? getVideosByCategorySlug(video.category.slug) : []),
     [video],
   );
-  const nextVideo = useMemo(() => (video ? getNextVideo(video) : undefined), [video]);
+  const nextVideo = useMemo(() => {
+    if (!video) return undefined;
+    const currentIndex = categoryVideos.findIndex((item) => item.id === video.id);
+    if (currentIndex === -1) return undefined;
+    const nextIndex = currentIndex + 1;
+    const candidate = categoryVideos[nextIndex];
+    if (!candidate || candidate.id === video.id) return undefined;
+    return candidate;
+  }, [video, categoryVideos]);
 
   // ── Video List Panel state ────────────────────────────────────────────
   const [isListOpen, setIsListOpen] = useState(false);
@@ -41,30 +50,74 @@ const PlayerPage = () => {
   // ── Auto-play countdown ───────────────────────────────────────────────
   const [showCountdown, setShowCountdown] = useState(false);
   const [autoPlayCancelled, setAutoPlayCancelled] = useState(false);
+  const autoPlayInFlightRef = useRef(false);
+
+  useEffect(() => {
+    console.log('[autoplay] overlay visibility', { showCountdown });
+  }, [showCountdown]);
+
+  useEffect(() => {
+    if (video) {
+      console.log('[autoplay] next video resolution', {
+        currentVideoId: video.id,
+        categoryCount: categoryVideos.length,
+        nextVideoId: nextVideo?.id,
+      });
+    }
+  }, [video, categoryVideos.length, nextVideo?.id]);
 
   // When video ends, show countdown
   useEffect(() => {
+    console.log('[autoplay] effect check', {
+      playbackState: playerStoreState.playbackState,
+      nextVideoId: nextVideo?.id,
+      autoPlayCancelled,
+      showCountdown,
+    });
     if (playerStoreState.playbackState === 'ended' && nextVideo && !autoPlayCancelled) {
+      console.log('[autoplay] ended -> showing countdown');
       setShowCountdown(true);
+      return;
     }
+    setShowCountdown(false);
   }, [playerStoreState.playbackState, nextVideo, autoPlayCancelled]);
 
   // Reset auto-play cancel flag on video change
   useEffect(() => {
+    autoPlayInFlightRef.current = false;
     setAutoPlayCancelled(false);
     setShowCountdown(false);
   }, [video?.id]);
 
   const handleAutoPlayComplete = useCallback(() => {
+    if (autoPlayInFlightRef.current) {
+      console.log('[autoplay] completion ignored (already in-flight)');
+      return;
+    }
+    autoPlayInFlightRef.current = true;
+
+    console.log('[autoplay] countdown complete -> navigate next', {
+      fromVideoId: video?.id,
+      toVideoId: nextVideo?.id,
+    });
     setShowCountdown(false);
     if (nextVideo) {
+      setPlaybackProgress({
+        currentTime: 0,
+        duration: 0,
+        buffered: 0,
+        isBuffering: false,
+      });
       playVideo(nextVideo);
       maximize();
       navigate(`/player/${nextVideo.slug}`, { replace: true });
+      return;
     }
-  }, [nextVideo, navigate, playVideo, maximize]);
+    autoPlayInFlightRef.current = false;
+  }, [nextVideo, navigate, playVideo, maximize, setPlaybackProgress, video?.id]);
 
   const handleAutoPlayCancel = useCallback(() => {
+    console.log('[autoplay] countdown cancelled');
     setShowCountdown(false);
     setAutoPlayCancelled(true);
   }, []);
@@ -123,10 +176,11 @@ const PlayerPage = () => {
 
       {/* Auto-play countdown overlay */}
       {showCountdown && nextVideo && (
-        <div className="fixed top-0 left-0 right-0 z-[60] pointer-events-none">
-          <div className="max-w-5xl mx-auto aspect-video flex items-center justify-center bg-black/80 pointer-events-auto">
+        <div className="fixed inset-0 flex items-center justify-center bg-black/80 pointer-events-auto" style={{ zIndex: 9999 }}>
+          <div className="rounded-2xl bg-(--color-bg-secondary) border border-white/10 shadow-xl">
             <AutoPlayCountdown
-              seconds={5}
+              key={video.id}
+              seconds={2}
               onComplete={handleAutoPlayComplete}
               onCancel={handleAutoPlayCancel}
               nextTitle={nextVideo.title}

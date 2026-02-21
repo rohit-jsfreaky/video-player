@@ -152,6 +152,7 @@ export const VideoPlayer = memo(function VideoPlayer({
       {/* ── ReactPlayer ──────────────────────────────────────────────────── */}
       <div className="absolute inset-0">
         <ReactPlayer
+          key={video.id}
           ref={playerRef}
           src={video.mediaUrl}
           playing={state.isPlaying}

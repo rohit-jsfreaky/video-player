@@ -30,6 +30,7 @@ export const MiniPlayer = memo(function MiniPlayer() {
   const { currentVideo, isMinimized } = state;
   const isPlayerRoute = location.pathname.startsWith('/player/');
   const [isMaximizingTransition, setIsMaximizingTransition] = useState(false);
+  const lastSyncedVideoIdRef = useRef<string | null>(null);
   const showFullscreen = Boolean(hasVideo && currentVideo && !isMinimized && isPlayerRoute);
   const showMini = Boolean(hasVideo && currentVideo && (isMinimized || isMaximizingTransition));
 
@@ -47,6 +48,12 @@ export const MiniPlayer = memo(function MiniPlayer() {
   // ── Keep store in sync with live player state ─────────────────────────
   useEffect(() => {
     if (!currentVideo) return;
+
+    if (lastSyncedVideoIdRef.current !== currentVideo.id) {
+      lastSyncedVideoIdRef.current = currentVideo.id;
+      return;
+    }
+
     setPlaybackProgress({
       currentTime: player.state.currentTime,
       duration: player.state.duration,
@@ -64,8 +71,28 @@ export const MiniPlayer = memo(function MiniPlayer() {
 
   useEffect(() => {
     if (!currentVideo) return;
-    if (player.state.hasEnded) {
-      if (state.playbackState !== 'ended') setPlaybackState('ended');
+    const endCutoffSeconds = Math.max(1, player.state.duration - 2);
+    const isNearRealEnd =
+      player.state.duration > 0
+      && player.state.currentTime >= endCutoffSeconds;
+
+    if (player.state.hasEnded && isNearRealEnd) {
+      if (state.playbackState !== 'ended') {
+        console.log('[MiniPlayer] setting playbackState -> ended', {
+          currentTime: player.state.currentTime,
+          duration: player.state.duration,
+          endCutoffSeconds,
+        });
+        setPlaybackState('ended');
+      }
+      return;
+    }
+    if (player.state.hasEnded && !isNearRealEnd) {
+      console.log('[MiniPlayer] ignored false ended state', {
+        currentTime: player.state.currentTime,
+        duration: player.state.duration,
+        endCutoffSeconds,
+      });
       return;
     }
     if (player.state.isBuffering) {
@@ -77,6 +104,8 @@ export const MiniPlayer = memo(function MiniPlayer() {
   }, [
     currentVideo,
     player.state.hasEnded,
+    player.state.currentTime,
+    player.state.duration,
     player.state.isBuffering,
     player.state.isPlaying,
     setPlaybackState,
